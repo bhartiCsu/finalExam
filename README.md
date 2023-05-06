@@ -22,14 +22,13 @@ To run the program:
 
     Open your preferred IDE and import the downloaded project folder into the IDE.
 
-    Open the 'MidTermProject' folder.
+    Open the 'finalExam' folder.
 
-   
 
     For any other IDE, you can check the respective commands to create an environment for package installation. However it is not manadatory to create an environment. It is recommended though, so as to avoid any version conflicts if you already have installed packages for your another work.
 
     Open Requirements.txt file and install the listed packages.
 
-    Run app.py using command "python -m flask run"
+    Run app.py using command "uvicorn main:app --reload"
 
-The program will execute and it will show you the http server url. Use that url followed by routes given in app.py and run it on Postman.
+The program will execute and it will show you the http server url. Use that url followed by routes given in main.py and run it on Postman.
