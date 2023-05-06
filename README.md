@@ -16,15 +16,15 @@ To run the program:
 
     Clone the repository by executing the following command in your terminal:
 
-    git clone https://github.com/bhartiCsu/WebBackend.git
+    git clone https://github.com/bhartiCsu/finalExam.git
 
-    Once the cloning process is completed, a folder named 'WebBackend' will get downloaded in the directory where you ran the git clone command.
+    Once the cloning process is completed, a folder named 'finalExam' will get downloaded in the directory where you ran the git clone command.
 
     Open your preferred IDE and import the downloaded project folder into the IDE.
 
     Open the 'MidTermProject' folder.
 
-    Follow the link to get the command to create separate environment in visual studio(IDE): https://code.visualstudio.com/docs/python/tutorial-flask
+   
 
     For any other IDE, you can check the respective commands to create an environment for package installation. However it is not manadatory to create an environment. It is recommended though, so as to avoid any version conflicts if you already have installed packages for your another work.
 
