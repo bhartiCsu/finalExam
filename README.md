@@ -1,4 +1,4 @@
-Team Members:
+# Team Members:
 
 1. Bharti Moryani
 
@@ -7,7 +7,7 @@ Team Members:
 # Install the requirements:
 pip install -r requirements.txt
 
-# To run the code
+# Execute the code
 
 1. Install IDE of your choice. We have used Visual studio.
 
