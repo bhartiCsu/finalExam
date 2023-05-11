@@ -1,7 +1,7 @@
 import motor.motor_asyncio
 from fastapi import FastAPI, HTTPException
 from pymongo import MongoClient
-from bookstore import BookStore
+from booksstore import booksstore
 from typing import Optional, List
 from bson import ObjectId
 import json
@@ -11,7 +11,7 @@ from json import JSONEncoder
 app = FastAPI()
 
 client = motor.motor_asyncio.AsyncIOMotorClient("mongodb://localhost:27017")
-database = client["BookStore"]
+database = client["booksstore"]
 collection = database["books"]
 
 class CustomJSONEncoder(JSONEncoder):
@@ -21,7 +21,7 @@ class CustomJSONEncoder(JSONEncoder):
         return JSONEncoder.default(self, obj)
 
 @app.post("/books/")
-async def create_book(book: BookStore):
+async def create_book(book: booksstore):
     # Validate the incoming book data using Pydantic
     if book.price <= 0:
         return {"error": "Price must be greater than zero"}
@@ -37,9 +37,7 @@ async def create_book(book: BookStore):
     # insert the book document into the MongoDB collection
     result = await collection.insert_one(book_dict)
 
-    # Return the stored book data as response
-    #return { "id": str(result.inserted_id), **book_dict }
-    # Return a success message instead of a dictionary
+    # Return a success message
     return "Book inserted successfully!"
 
 @app.get("/books/aggregation/")
@@ -51,14 +49,14 @@ async def get_books_aggregation():
                 {"$count": "count"}
             ],
             "bestselling_books": [
-                {"$sort": {"stock": -1}},
+                {"$sort": {"sales": -1}},
                 {"$limit": 5}
             ],
             "top_authors": [
-                {"$group": {"_id": "$author", "books": {"$push": "$title"}}},
-                {"$project": {"_id": 0, "author": "$_id", "book_count": {"$size": "$books"}}},
-                {"$sort": {"book_count": -1}},
-                {"$limit": 5}
+                {"$group": {"_id": "$author", "total_stock": {"$sum": "$stock"}}},
+                {"$sort": {"total_stock": -1}},
+                {"$limit": 5},
+                {"$project": {"_id": 0, "author": "$_id", "total_stock": 1}}
             ]
         }
     }
@@ -75,53 +73,45 @@ async def get_books_aggregation():
     return json.loads(json.dumps(result, cls=CustomJSONEncoder))
 
 # GET /books: Retrieves a list of all books in the store
-@app.get("/books/", response_model=List[BookStore])
+@app.get("/books/", response_model=List[booksstore])
 async def get_all_books():
     books = []
     async for book in collection.find():
-        books.append(BookStore(**book))
+        books.append(booksstore(**book))
     return books
 
 
 # GET /books/{book_id}: Retrieves a specific book by ID
-@app.get("/books/{book_id}", response_model=BookStore)
+@app.get("/books/{book_id}", response_model=booksstore)
 async def get_book_by_id(book_id: str):
-    print(book_id)
+    if not is_valid_objectid(book_id):
+        raise HTTPException(status_code=400, detail="Invalid book ID")
+    
     book = await collection.find_one({"_id": ObjectId(book_id)})
     if book:
-        return BookStore(**book)
+        return booksstore(**book)
     else:
         raise HTTPException(status_code=404, detail="Book not found")
 
 
-# POST /books: Adds a new book to the store
-@app.post("/books/", response_model=BookStore)
-async def create_book(book: BookStore):
-    # Validate the incoming book data using Pydantic
-    if book.price <= 0:
-        raise HTTPException(status_code=400, detail="Price must be greater than zero")
-    if book.stock < 0:
-        raise HTTPException(status_code=400, detail="Stock must be a non-negative integer")
-
-    # convert book model to dictionary
-    book_dict = book.dict()
-
-    # insert the book document into the MongoDB collection
-    result = await collection.insert_one(book_dict)
-
-    # Return the stored book data as response
-    return { "id": str(result.inserted_id), **book_dict }
-
-
 # PUT /books/{book_id}: Updates an existing book by ID
-@app.put("/books/{book_id}", response_model=BookStore)
+@app.put("/books/{book_id}", response_model=booksstore)
 async def update_book(book_id: str, update_data: dict):
+    if not is_valid_objectid(book_id):
+        raise HTTPException(status_code=400, detail="Invalid book ID")
+    
     book_id = ObjectId(book_id)
+
+    # check if the book exists in the MongoDB collection
+    book = await collection.find_one({"_id": book_id})
+    if book is None:
+        raise HTTPException(status_code=404, detail="Book not found")
+    
     # update the book document in the MongoDB collection
     result = await collection.update_one({"_id": ObjectId(book_id)}, {"$set": update_data})
     if result.modified_count == 1:
         updated_book = await collection.find_one({"_id": ObjectId(book_id)})
-        return BookStore(**updated_book)
+        return booksstore(**updated_book)
     else:
         raise HTTPException(status_code=404, detail="Book not found")
 
@@ -129,7 +119,17 @@ async def update_book(book_id: str, update_data: dict):
 # DELETE /books/{book_id}: Deletes a book from the store by ID
 @app.delete("/books/{book_id}")
 async def delete_book(book_id: str):
-    result = await collection.delete_one({"_id": ObjectId(book_id)})
+    if not is_valid_objectid(book_id):
+        raise HTTPException(status_code=400, detail="Invalid book ID")
+    
+    book_id = ObjectId(book_id)
+
+    # check if the book exists in the MongoDB collection
+    book = await collection.find_one({"_id": book_id})
+    if book is None:
+        raise HTTPException(status_code=404, detail="Book not found")
+    result = await collection.delete_one({"_id": book_id})
+
     if result.deleted_count == 1:
         return {"message": "Book deleted successfully"}
     else:
@@ -155,9 +155,18 @@ async def search_books(title: Optional[str] = None, author: Optional[str] = None
     cursor = collection.find(query)
 
     # Convert the cursor to a list of books
-    books = [BookStore(**book) async for book in cursor]
+    books = [booksstore(**book) async for book in cursor]
 
     # Return the list of books as response
     return books
+
+def is_valid_objectid(objectid_str):
+    if len(objectid_str) != 24:
+        return False
+    try:
+        ObjectId(objectid_str)
+        return True
+    except Exception:
+        return False
 
 
