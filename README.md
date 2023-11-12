@@ -1,8 +1,7 @@
-# Team Members:
+# Author:
 
 1. Bharti Moryani
 
-2. Mohammed Ali
 
 # Install the requirements:
 pip install -r requirements.txt
@@ -28,4 +27,4 @@ pip install -r requirements.txt
     
     For any other IDE, you can check the respective commands to create an environment for package installation. However it is not manadatory to create an environment. It is recommended though, so as to avoid any version conflicts if you already have installed packages for your another work.
 
-8. Run main.py using command "uvicorn main:app --reload"
+8. Run main.py using command "python main.py"
