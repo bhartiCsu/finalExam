@@ -1,47 +1,47 @@
-import motor.motor_asyncio
-from fastapi import FastAPI, HTTPException
+from flask import Flask, request, jsonify
 from pymongo import MongoClient
-from booksstore import booksstore
-from typing import Optional, List
 from bson import ObjectId
-import json
-from json import JSONEncoder
+from pydantic import BaseModel
+from typing import Optional, List
 
+app = Flask(__name__)
 
-app = FastAPI()
-
-client = motor.motor_asyncio.AsyncIOMotorClient("mongodb://localhost:27017")
+# MongoDB setup
+client = MongoClient("mongodb://localhost:27017")
 database = client["booksstore"]
 collection = database["books"]
 
-class CustomJSONEncoder(JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, ObjectId):
-            return str(obj)
-        return JSONEncoder.default(self, obj)
+class BooksStore(BaseModel):
+    title: str
+    author: str
+    description: str
+    price: float
+    stock: int
+    sales: int
 
-@app.post("/books/")
-async def create_book(book: booksstore):
-    # Validate the incoming book data using Pydantic
-    if book.price <= 0:
-        return {"error": "Price must be greater than zero"}
-    if book.stock < 0:
-        return {"error": "Stock must be a non-negative integer"}
+# Route to create a book
+@app.route('/books/', methods=['POST'])
+def create_book():
+    data = request.json
 
-    # convert book model to dictionary
-    book_dict = book.dict()
+    # Validate the incoming book data
+    if data.get('price', 0) <= 0 or data.get('stock', 0) <= 0 or data.get('sales', 0) < 0:
+        return jsonify({"error": "Invalid book data"}), 400
+    
+    if not data.get('title') or not data.get('author'):
+        return jsonify({"error": "Title and author cannot be empty"}), 400
 
-    # insert the book document into the MongoDB collection
-    #book_dict['_id'] = str(ObjectId())
 
-    # insert the book document into the MongoDB collection
-    result = await collection.insert_one(book_dict)
+    # Insert the book into the database
+    result = collection.insert_one(data)
 
     # Return a success message
-    return "Book inserted successfully!"
+    return jsonify({"message": "Book inserted successfully!"})
 
-@app.get("/books/aggregation/")
-async def get_books_aggregation():
+# Route to get books aggregation
+@app.route('/books/aggregation/', methods=['GET'])
+def get_books_aggregation():
+    # Similar aggregation pipeline as in the FastAPI example
     pipeline = [
     {
         "$facet": {
@@ -62,104 +62,83 @@ async def get_books_aggregation():
     }
 ]
 
-    # perform the aggregation query
-    cursor = collection.aggregate(pipeline)
+    # Perform the aggregation query
+    result = list(collection.aggregate(pipeline))
 
-    # convert cursor to list
-    result = await cursor.to_list(length=100)
+    # Return the result as response
+    return jsonify(result)
 
-    # return the result as response
-    #return result
-    return json.loads(json.dumps(result, cls=CustomJSONEncoder))
-
-# GET /books: Retrieves a list of all books in the store
-@app.get("/books/", response_model=List[booksstore])
-async def get_all_books():
-    books = []
-    async for book in collection.find():
-        books.append(booksstore(**book))
-    return books
-
-
-# GET /books/{book_id}: Retrieves a specific book by ID
-@app.get("/books/{book_id}", response_model=booksstore)
-async def get_book_by_id(book_id: str):
-    if not is_valid_objectid(book_id):
-        raise HTTPException(status_code=400, detail="Invalid book ID")
+# Route to get all books
+@app.route('/books/', methods=['GET'])
+def get_all_books():
+    books = list(collection.find())
     
-    book = await collection.find_one({"_id": ObjectId(book_id)})
+    # Convert ObjectId to strings
+    for book in books:
+        book['_id'] = str(book['_id'])
+    
+    return jsonify(books)
+
+# Route to get a book by ID
+@app.route('/books/<book_id>', methods=['GET'])
+def get_book_by_id(book_id):
+    if not is_valid_objectid(book_id):
+        return jsonify({"error": "Invalid book ID"}), 400
+
+    book = collection.find_one({"_id": ObjectId(book_id)})
     if book:
-        return booksstore(**book)
+        # Convert ObjectId to string
+        book['_id'] = str(book['_id'])
+        return jsonify(book)
     else:
-        raise HTTPException(status_code=404, detail="Book not found")
+        return jsonify({"error": "Book not found"}), 404
 
-
-# PUT /books/{book_id}: Updates an existing book by ID
-@app.put("/books/{book_id}", response_model=booksstore)
-async def update_book(book_id: str, update_data: dict):
+# Route to update a book by ID
+@app.route('/books/<book_id>', methods=['PUT'])
+def update_book(book_id):
     if not is_valid_objectid(book_id):
-        raise HTTPException(status_code=400, detail="Invalid book ID")
+        return jsonify({"error": "Invalid book ID"}), 400
     
     book_id = ObjectId(book_id)
 
-    # check if the book exists in the MongoDB collection
-    book = await collection.find_one({"_id": book_id})
+    # Check if the book exists in the MongoDB collection
+    book = collection.find_one({"_id": book_id})
     if book is None:
-        raise HTTPException(status_code=404, detail="Book not found")
+        return jsonify({"error": "Book not found"}), 404
     
-    # update the book document in the MongoDB collection
-    result = await collection.update_one({"_id": ObjectId(book_id)}, {"$set": update_data})
-    if result.modified_count == 1:
-        updated_book = await collection.find_one({"_id": ObjectId(book_id)})
-        return booksstore(**updated_book)
+    # Update the book document in the MongoDB collection
+    update_data = request.json
+    result = collection.update_one({"_id": ObjectId(book_id)}, {"$set": update_data})    
+    
+    if result:
+        # Convert ObjectId to string in the updated book
+        updated_book = collection.find_one({"_id": ObjectId(book_id)})
+        updated_book['_id'] = str(updated_book['_id'])
+        return jsonify(updated_book)
     else:
-        raise HTTPException(status_code=404, detail="Book not found")
+        return jsonify({"error": "Book not found"}), 404
 
-
-# DELETE /books/{book_id}: Deletes a book from the store by ID
-@app.delete("/books/{book_id}")
-async def delete_book(book_id: str):
+# Route to delete a book by ID
+@app.route('/books/<book_id>', methods=['DELETE'])
+def delete_book(book_id):
     if not is_valid_objectid(book_id):
-        raise HTTPException(status_code=400, detail="Invalid book ID")
+        return jsonify({"error": "Invalid book ID"}), 400
     
     book_id = ObjectId(book_id)
 
-    # check if the book exists in the MongoDB collection
-    book = await collection.find_one({"_id": book_id})
+    # Check if the book exists in the MongoDB collection
+    book = collection.find_one({"_id": book_id})
     if book is None:
-        raise HTTPException(status_code=404, detail="Book not found")
-    result = await collection.delete_one({"_id": book_id})
+        return jsonify({"error": "Book not found"}), 404
+    
+    result = collection.delete_one({"_id": book_id})
 
     if result.deleted_count == 1:
-        return {"message": "Book deleted successfully"}
+        return jsonify({"message": "Book deleted successfully"})
     else:
-        raise HTTPException(status_code=404, detail="Book not found")
+        return jsonify({"error": "Book not found"}), 404
 
-
-@app.get("/search")
-async def search_books(title: Optional[str] = None, author: Optional[str] = None, min_price: Optional[float] = None, max_price: Optional[float] = None):
-    # Construct a query object based on the search parameters
-    query = {}
-    if title:
-        query["title"] = {"$regex": title, "$options": "i"}  # search title case-insensitively
-    if author:
-        query["author"] = {"$regex": author, "$options": "i"}  # search author case-insensitively
-    if min_price is not None and max_price is not None:
-        query["price"] = {"$gte": min_price, "$lte": max_price}
-    elif min_price is not None:
-        query["price"] = {"$gte": min_price}
-    elif max_price is not None:
-        query["price"] = {"$lte": max_price}
-
-    # Search for books matching the query
-    cursor = collection.find(query)
-
-    # Convert the cursor to a list of books
-    books = [booksstore(**book) async for book in cursor]
-
-    # Return the list of books as response
-    return books
-
+# Function to check if an object ID is valid
 def is_valid_objectid(objectid_str):
     if len(objectid_str) != 24:
         return False
@@ -169,4 +148,5 @@ def is_valid_objectid(objectid_str):
     except Exception:
         return False
 
-
+if __name__ == '__main__':
+    app.run(debug=True)
